@@ -1,0 +1,537 @@
+---
+title: "Non-Census Data Cleaning"
+author: "Will Thackway"
+date: "07/07/2021"
+output: html_document
+---
+
+############ 0. Setup ###################
+# 0.0 Import packages
+```{r setup}
+library(sf)
+library(dplyr)
+library(MLmetrics)
+library(mapview)
+
+library(raster)
+library(geomerge)
+library(maptools)
+library(tidyverse)
+library(lwgeom)
+library(plyr)
+library(tmap)
+library(ggplot2)
+library(reshape2)
+library(maptools)
+library(rgdal)
+library(zoo)
+
+library(classInt)
+library(Hmisc)
+library(ExcelFunctionsR)
+```
+
+
+# 0. Import SA boundaries
+```{r}
+# SA1 Level
+unzip("C:/Files/Value Australia/All_Projects/Data/Inputs/1270055001_sa1_2016_aust_shape.zip", exdir=".")
+sa1 <- st_read("SA1_2016_AUST.shp") %>% st_transform(crs = st_crs(4283)) %>% filter(STE_CODE16 == "1")
+
+sa1_df <- sa1
+sa1_df$geometry <- NULL
+```
+
+
+############ 1. Value Net Commercial Property Data ###################
+# 1.1 Import Data
+```{r}
+# VG Dataset
+vg_raw_sf <- readRDS("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/sf_SYD_Valnet_Dealing2001_2019.rds")
+
+vg_raw_df <- readRDS("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/SYD_Valnet_dealing_Geocoded.rds")
+
+# Population data to merge on data for SA1 areas without businesses
+population_16  <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/2016 Census Data/CSV Processed Inputs/2016_SA1_Population.csv", stringsAsFactors = FALSE)
+```
+
+# 1.2 Investigate Descriptions
+```{r}
+# Summarise description field
+vg_desc <- ddply(vg_raw_df, .(DESCRIPTION), summarise,  mean_price = length(PURCH_PRICE))
+
+## Create commercial fields
+# Define Descriptions for each field
+industrial = c("INDUSTRIAL STRATA", "INDUST. STRATA - SALES OF PART INTERESTS", "INDUSTRIAL STRATA - SALE INCL. OTHER LANDS", "INDUST. VACANT. REAR LAND, BNDRY ADJ, ETC")
+
+office = c("STRATA OFFICE", "OFFICES", "SHOPS/OFFICES", "STRATA OFFICE - SALE INCL. OTHER LANDS", "STRATA OFFICE - SALES OF PART INTERESTS", "OFFICES - SALES OF PART INTEREST", "OFFICES - SALE INCL. OTHER LANDS", "SHOPS & OFFICES - SALE OF PART INTERESTS", "SHOPS/OFFICES - SALE INCL. OTHER LANDS", "OFFICES / HERITAGE", "STRATA OFFICE / HERITAGE", "SHOPS/OFFICES / HERITAGE")
+
+shops = c("SHOPS", "STRATA SHOP", "SHOPS - SALES OF PART INTERESTS", "SHOP AND DWELLING - CORNER STONE", "SHOPS - SALE INCL. OTHER LANDS", "STRATA SHOPS - SALES OF PART INTERESTS", "	STRATA SHOP - SALE INCL. OTHER LANDS", "SHOP & DWELLING - SALES OF PART OF INTERESTS", "REGIONAL SHOPPING CENTRE", "STRATA SHOPS - FLOOD PRONE", "SHOPS / HERITAGE", "SHOP/DWELLING (CNR STORE) - SALE INCL. OTHER LANDS", "REGIONAL SHOPPING CENTRE - SALE INCL. OTHER LANDS", "SHOPS/OFFICES / HERITAGE", "SHOPS & OFFICES - FLOOD PRONE")
+
+factory_workshop_warehouse = c("FACTORY/WORKSHOP", "WAREHOUSE", "FACTORY/WORKSHOP - SALES OF PART INTERESTS", "FACTORY/W.SHOP - SALE INCL. OTHER LANDS", "WAREHOUSE - SALES OF PART INTERESTS", "WAREHOUSE - SALE INCL. OTHER LANDS", "FACTORY/WORKSHOP - FLOOD PRONE")
+
+vg_comm <- vg_raw_df %>% 
+  mutate(PropertyUse = ifelse(DESCRIPTION %in% industrial, "industrial",
+                              ifelse(DESCRIPTION %in% office, "office",
+                                     ifelse(DESCRIPTION %in% shops, "shops",
+                                            ifelse(DESCRIPTION %in% factory_workshop_warehouse, "factory_warehouse_workshop",
+                                                   "non-commercial") ) ) ) ,
+         industrial = ifelse(PropertyUse == "industrial", 1, 0),
+         office = ifelse(PropertyUse == "office", 1, 0),
+         shops = ifelse(PropertyUse == "shops", 1, 0),
+         factory_warehouse = ifelse(PropertyUse == "factory_warehouse_workshop", 1, 0),
+         year = format(as.Date(CONT_DATE, format="%Y/%m/%d"),"%Y"))
+```
+
+
+# 1.3 Summarise number of commercial sales in 5-year periods before 2011 & 2016
+```{r}
+## Convert data to spatial data
+# Import Statistical Area boundaries
+unzip("C:/Files/Value Australia/All_Projects/Data/Inputs/1270055001_sa1_2016_aust_shape.zip", exdir=".")
+sa1 <- read_sf("SA1_2016_AUST.shp") %>% filter(GCC_CODE16 == "1GSYD") %>% st_transform(crs = st_crs(4283))
+
+# Convert VG dataset to sf
+vg_SF <- st_as_sf(vg_comm,coords = c("X_Centroid", "Y_Centroid"), crs = st_crs(4283))
+
+# Merge datasets to get SA1 observation for 
+vg_SF_sa1 <- sf::st_join(vg_SF, sa1,  join = st_intersects) %>% drop_na()
+
+
+## Summarise based on 5 year periods
+# Drop geometry column in df to reduce computation time
+vg_df_sa1 <- vg_SF_sa1
+vg_df_sa1$geometry <- NULL
+
+# Separate into 5 year period before 2011 and 2016
+vg_11 <- vg_df_sa1 %>% filter(year > 2006, year < 2012)
+vg_16 <- vg_df_sa1 %>% filter(year > 2011, year < 2017)
+
+# Merge with population data to fill in points for areas with no commercial sales
+vg_11_all <- merge(x=population_16, y=vg_11, by="SA1_MAIN16", all.x=TRUE) %>% 
+  mutate(industrial=IFNA(industrial, 0),
+         office=IFNA(office, 0),
+         shops=IFNA(shops, 0),
+         factory_warehouse=IFNA(factory_warehouse, 0))
+
+vg_16_all <- merge(x=population_16, y=vg_16, by="SA1_MAIN16", all.x=TRUE) %>% 
+  mutate(industrial=IFNA(industrial, 0),
+         office=IFNA(office, 0),
+         shops=IFNA(shops, 0),
+         factory_warehouse=IFNA(factory_warehouse, 0))
+
+# Summarise number of commercial buildings sold in each SA1 area
+vg_11_sum <- ddply(vg_11_all, .(SA1_MAIN16), summarise, 
+                   commercial_industrial_sold = sum(industrial),
+                   commercial_office_sold = sum(office),
+                   commercial_shops_sold = sum(shops),
+                   commercial_factory_warehouse_sold = sum(factory_warehouse))
+
+vg_16_sum <- ddply(vg_16_all, .(SA1_MAIN16), summarise, 
+                   commercial_industrial_sold = sum(industrial),
+                   commercial_office_sold = sum(office),
+                   commercial_shops_sold = sum(shops),
+                   commercial_factory_warehouse_sold = sum(factory_warehouse))
+```
+
+
+# 1.4 Export Commercial Sold data
+```{r}
+write.csv(vg_11_sum, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2011_SA1_Commercial.csv")
+
+write.csv(vg_16_sum, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2016_SA1_Commercial.csv")
+```
+
+
+
+########### 2. ABR Business Data ###################
+# 2.1 Import Data
+```{r}
+# ABR data
+abr_06_raw <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/2006_SA1_ABR.csv", stringsAsFactors = FALSE, fileEncoding="UTF-8-BOM")
+
+abr_11_raw <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/2011_SA1_ABR.csv", stringsAsFactors = FALSE)
+
+abr_16_raw <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/2016_SA1_ABR.csv", stringsAsFactors = FALSE)
+```
+
+# 2.2 Clean Data
+```{r}
+# Convert to wide format
+abr_06_wide <- reshape(abr_06_raw, idvar = "SA1_MAIN16", timevar = "Industry_Class", direction = "wide")
+
+abr_11_wide <- reshape(abr_11_raw, idvar = "SA1_MAIN16", timevar = "Industry_Class", direction = "wide")
+
+abr_16_wide <- reshape(abr_16_raw, idvar = "SA1_MAIN16", timevar = "Industry_Class", direction = "wide")
+
+
+# Merge ABN data with population dataset to generate points for SA1 areas without businesses
+abr_06_all <- merge(x=population_16, y=abr_06_wide, by="SA1_MAIN16", all.x=TRUE)
+
+abr_11_all <- merge(x=population_16, y=abr_11_wide, by="SA1_MAIN16", all.x=TRUE)
+
+abr_16_all <- merge(x=population_16, y=abr_16_wide, by="SA1_MAIN16", all.x=TRUE)
+
+# Fill in NA's with 0
+abr_06 <- abr_06_all %>% 
+  mutate(cafe_rest = IFNA(Count.ABN.Cafes_and_Restaurants,0),
+         pub_bar = IFNA(Count.ABN.Pubs_Taverns_and_Bars,0),
+         clubs = IFNA(Count.ABN.Clubs_Hospitality,0),
+         take_food = IFNA(Count.ABN.Takeaway_Food_Services,0),
+         health_fitness = IFNA(Count.ABN.Health_and_Fitness_Centres_and_Gymnasia_Operation,0),
+         sport_clubs = IFNA(Count.ABN.Sports_and_Physical_Recreation_Clubs_and_Sports_Professionals,0),
+         sport_venues = IFNA(Count.ABN.Sports_and_Physical_Recreation_Venues_Grounds_and_Facilities_Operation,0)) %>% 
+  dplyr::select(SA1_MAIN16,
+                cafe_rest,
+                pub_bar,
+                clubs,
+                take_food,
+                health_fitness,
+                sport_clubs,
+                sport_venues)
+
+abr_11 <- abr_11_all %>% 
+  mutate(cafe_rest = IFNA(Count.ABN.Cafes_and_Restaurants,0),
+         pub_bar = IFNA(Count.ABN.Pubs_Taverns_and_Bars,0),
+         clubs = IFNA(Count.ABN.Clubs_Hospitality,0),
+         take_food = IFNA(Count.ABN.Takeaway_Food_Services,0),
+         health_fitness = IFNA(Count.ABN.Health_and_Fitness_Centres_and_Gymnasia_Operation,0),
+         sport_clubs = IFNA(Count.ABN.Sports_and_Physical_Recreation_Clubs_and_Sports_Professionals,0),
+         sport_venues = IFNA(Count.ABN.Sports_and_Physical_Recreation_Venues_Grounds_and_Facilities_Operation,0)) %>% 
+  dplyr::select(SA1_MAIN16,
+                cafe_rest,
+                pub_bar,
+                clubs,
+                take_food,
+                health_fitness,
+                sport_clubs,
+                sport_venues)
+
+abr_16 <- abr_16_all %>% 
+  mutate(cafe_rest = IFNA(Count.ABN.Cafes_and_Restaurants,0),
+         pub_bar = IFNA(Count.ABN.Pubs_Taverns_and_Bars,0),
+         clubs = IFNA(Count.ABN.Clubs_Hospitality,0),
+         take_food = IFNA(Count.ABN.Takeaway_Food_Services,0),
+         health_fitness = IFNA(Count.ABN.Health_and_Fitness_Centres_and_Gymnasia_Operation,0),
+         sport_clubs = IFNA(Count.ABN.Sports_and_Physical_Recreation_Clubs_and_Sports_Professionals,0),
+         sport_venues = IFNA(Count.ABN.Sports_and_Physical_Recreation_Venues_Grounds_and_Facilities_Operation,0)) %>% 
+  dplyr::select(SA1_MAIN16,
+                cafe_rest,
+                pub_bar,
+                clubs,
+                take_food,
+                health_fitness,
+                sport_clubs,
+                sport_venues)
+```
+
+
+# 2.3 Export Data
+```{r}
+write.csv(abr_06, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2006_SA1_ABR.csv")
+
+write.csv(abr_11, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2011_SA1_ABR.csv")
+
+write.csv(abr_16, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2016_SA1_ABR.csv")
+```
+
+
+
+# 2.4 SA2-Level ABR
+```{r}
+# ABR data
+abr_11_raw_SA2 <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/2011_SA2_ABR.csv", stringsAsFactors = FALSE)
+
+abr_16_raw_SA2 <- read.csv("C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/2016_SA2_ABR.csv", stringsAsFactors = FALSE)
+
+
+# Convert to wide format
+abr_11_wide_SA2 <- reshape(abr_11_raw_SA2, idvar = "SA2_NAME16", timevar = "Industry_Class", direction = "wide")
+
+abr_16_wide_SA2 <- reshape(abr_16_raw_SA2, idvar = "SA2_NAME16", timevar = "Industry_Class", direction = "wide")
+
+
+# Merge population data with SA1 dataset to get SA2 NAME for each SA1 area, to merge on ABR_SA2 data
+population_16_sa1 <- merge(population_16, sa1_df, by="SA1_MAIN16")
+
+
+# Merge ABN data with population dataset to generate points for SA1 areas without businesses
+abr_11_all_sa2 <- merge(x=population_16_sa1, y=abr_11_wide_SA2, by="SA2_NAME16", all.x=TRUE)
+
+abr_16_all_sa2 <- merge(x=population_16_sa1, y=abr_16_wide_SA2, by="SA2_NAME16", all.x=TRUE)
+
+
+# Fill in NA's with 0
+abr_11_sa2 <- abr_11_all_sa2 %>% 
+  mutate(cafe_rest = IFNA(Count_ABN.Cafes_and_Restaurants,0),
+         pub_bar = IFNA(Count_ABN.Pubs_Taverns_and_Bars,0),
+         clubs = IFNA(Count_ABN.Clubs_Hospitality,0),
+         take_food = IFNA(Count_ABN.Takeaway_Food_Services,0),
+         health_fitness = IFNA(Count_ABN.Health_and_Fitness_Centres_and_Gymnasia_Operation,0),
+         sport_clubs = IFNA(Count_ABN.Sports_and_Physical_Recreation_Clubs_and_Sports_Professionals,0),
+         sport_venues = IFNA(Count_ABN.Sports_and_Physical_Recreation_Venues_Grounds_and_Facilities_Operation,0)) %>% 
+  dplyr::select(SA1_MAIN16,
+                cafe_rest,
+                pub_bar,
+                clubs,
+                take_food,
+                health_fitness,
+                sport_clubs,
+                sport_venues)
+
+abr_16_sa2 <- abr_16_all_sa2 %>% 
+  mutate(cafe_rest = IFNA(Count_ABN.Cafes_and_Restaurants,0),
+         pub_bar = IFNA(Count_ABN.Pubs_Taverns_and_Bars,0),
+         clubs = IFNA(Count_ABN.Clubs_Hospitality,0),
+         take_food = IFNA(Count_ABN.Takeaway_Food_Services,0),
+         health_fitness = IFNA(Count_ABN.Health_and_Fitness_Centres_and_Gymnasia_Operation,0),
+         sport_clubs = IFNA(Count_ABN.Sports_and_Physical_Recreation_Clubs_and_Sports_Professionals,0),
+         sport_venues = IFNA(Count_ABN.Sports_and_Physical_Recreation_Venues_Grounds_and_Facilities_Operation,0))  %>% 
+  dplyr::select(SA1_MAIN16,
+                cafe_rest,
+                pub_bar,
+                clubs,
+                take_food,
+                health_fitness,
+                sport_clubs,
+                sport_venues)
+
+
+# Export Data
+write.csv(abr_11_sa2, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2011_SA2_ABR.csv")
+
+write.csv(abr_16_sa2, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2016_SA2_ABR.csv")
+```
+
+########### 3. Airbnb ###################
+# 3.1 Import Data
+```{r}
+# Import Total Dwellings Data
+dwellings_11 <- read.csv("C:/Files/Value Australia/Gentrification ML ML Prediction/Data/Inputs/2011 Census Data/2011_SA1_Dwellings_Total.csv")
+dwellings_16 <- read.csv("C:/Files/Value Australia/Gentrification ML ML Prediction/Data/Inputs/2016 Census Data/2016_SA1_Dwellings_Total.csv")
+
+# Import SA1 Mapping
+sa1_mapping <- read.csv("C:/Files/Value Australia/All_Projects/Data/Mappings/SA1 Mapping.csv", stringsAsFactors = FALSE, fileEncoding="UTF-8-BOM")
+
+# Merge mapping onto dwellings 11 data
+dwellings_11_mapped <- dwellings_11 %>% 
+  merge(sa1_mapping, by="SA1_MAIN11")
+
+# Merge on dwelling data to sa1 data
+sa1_df <- sa1 
+sa1_df$geometry <- NULL
+sa1_df_1 <- merge(x=sa1_df, y=dwellings_11_mapped, by="SA1_MAIN16", all.x=TRUE)
+sa1_df_2 <- merge(x=sa1_df_1, y=dwellings_16, by="SA1_MAIN16", all.x=TRUE) 
+
+sa1_df_3 = sa1_df_2[!duplicated(sa1_df_2$SA1_MAIN16),]
+
+# Import Airbnb data
+airbnb_raw  <- read.csv("C:/Files/Value Australia/Airbnb Housing Prices/Data/Inputs/AirDNA_Extended_Australia_frontiersi_June_2021.csv", stringsAsFactors = FALSE) %>% 
+  filter(City == "Sydney") %>% 
+  mutate(Created.Date = as.Date(Created.Date), Last.Scraped.Date = as.Date(Last.Scraped.Date)) %>% 
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = st_crs(4283))
+```
+
+
+# 3.2 Create Airbnb Share measure
+```{r}
+# Merge on SA1 data
+airbnb_sa1 <- st_join(airbnb_raw, sa1)
+
+# Create active flags
+airbnb <- airbnb_sa1 %>% 
+  mutate(active_13 = ifelse(Created.Date < "2014-01-01" & Last.Scraped.Date > "2012-12-31", 1, 0),
+         active_14 = ifelse(Created.Date < "2015-07-01" & Last.Scraped.Date > "2013-12-31", 1, 0),
+         active_15 = ifelse(Created.Date < "2016-01-01" & Last.Scraped.Date > "2014-12-31", 1, 0),
+         active_16 = ifelse(Created.Date < "2017-01-01" & Last.Scraped.Date > "2015-12-31", 1, 0)) 
+
+# Separate active datasets
+active_13 <- airbnb %>% filter(active_13 == 1)
+active_14 <- airbnb %>% filter(active_14 == 1)
+active_15 <- airbnb %>% filter(active_15 == 1)
+active_16 <- airbnb %>% filter(active_16 == 1)
+  
+
+# Calculate number of listings in each SA1 level:
+sa1_abb <- 
+  sa1_df_3 %>%
+  mutate(sa1_abb_count_13 = lengths(st_contains(sa1, active_13)),
+         sa1_abb_count_14 = lengths(st_contains(sa1, active_14)),
+         sa1_abb_count_15 = lengths(st_contains(sa1, active_15)),
+         sa1_abb_count_16 = lengths(st_contains(sa1, active_16)),
+         
+         sa1_abb_share_13 = ifelse(Dwellings_Total_11 == 0, 0, IFNA(sa1_abb_count_13/Dwellings_Total_11,0)),
+         sa1_abb_share_14 = ifelse(Dwellings_Total_11 == 0, 0, IFNA(sa1_abb_count_14/Dwellings_Total_11,0)),
+         sa1_abb_share_15 = ifelse(Dwellings_Total_11 == 0, 0, IFNA(sa1_abb_count_15/Dwellings_Total_11,0)),
+         sa1_abb_share_16 = ifelse(dwellings_total_16 == 0, 0, IFNA(sa1_abb_count_16/dwellings_total_16,0))
+         ) %>%
+  dplyr::select(SA1_MAIN16, sa1_abb_count_13, sa1_abb_count_14, sa1_abb_count_15, sa1_abb_count_16,
+                sa1_abb_share_13, sa1_abb_share_14, sa1_abb_share_15, sa1_abb_share_16,
+                Dwellings_Total_11, dwellings_total_16)
+
+# Separate data into 2011 and 2016 datasets
+sa1_abb_11 <- sa1_abb %>% 
+  mutate(airbnb_count = sa1_abb_count_14,
+         airbnb_share = sa1_abb_share_14) %>% 
+  dplyr::select(SA1_MAIN16, airbnb_count, airbnb_share)
+
+sa1_abb_16 <- sa1_abb %>% 
+  mutate(airbnb_count = sa1_abb_count_16,
+         airbnb_share = sa1_abb_share_16) %>% 
+  dplyr::select(SA1_MAIN16, airbnb_count, airbnb_share)
+```
+
+
+# 3.3 Export Data
+```{r}
+write.csv(sa1_abb_11, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2011_SA1_ABB.csv")
+
+write.csv(sa1_abb_16, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/CSV_Processed_Inputs/2016_SA1_ABB.csv")
+```
+
+
+
+########### 4. Mobility Measures ###################
+# 4.1 Import Data
+```{r}
+## Import GCSA data to clip POI to within Greater Sydney
+unzip("C:/Files/Value Australia/All_Projects/Data/Inputs/1270055001_gccsa_2016_aust_shape.zip", exdir=".")
+gcsa <- read_sf("GCCSA_2016_AUST.shp") %>% filter(GCC_CODE16 == "1GSYD") %>% st_transform(crs = st_crs(4283))
+
+## TRANSPORT FACILITY POINT HISTORY
+# The input file geodatabase
+fgdb <- "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/Transport_facility_point.gdb"
+
+# List all feature classes in a file geodatabase
+subset(ogrDrivers(), grepl("GDB", name))
+fc_list <- ogrListLayers(fgdb)
+print(fc_list)
+
+# Read the feature class
+tfp <- readOGR(dsn=fgdb,layer="TransportFacilityPoint")
+sf_tfp <- st_as_sf(tfp)
+sf_tfp_syd <- st_transform(sf_tfp, crs = st_crs(4283)) %>% 
+  st_join(gcsa) %>% 
+  filter(GCC_CODE16 == "1GSYD")
+
+# Convert to df
+df_tfp <- sf_tfp_syd %>% cbind(st_coordinates(sf_tfp_syd))
+df_tfp$geometry <- NULL
+
+
+
+## POI HISTORICAL
+# The input file geodatabase
+fgdb2 <- "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/POIHistory_20210713.gdb"
+
+# List all feature classes in a file geodatabase
+subset(ogrDrivers(), grepl("GDB", name))
+fc_list2 <- ogrListLayers(fgdb2)
+print(fc_list2)
+
+# Read the feature class
+poi <- readOGR(dsn=fgdb2,layer="pointofinterest_history")
+sf_poi <- st_as_sf(poi)
+sf_poi_syd <- st_transform(sf_poi, crs = st_crs(4283)) %>% 
+  st_join(gcsa) %>% 
+  filter(GCC_CODE16 == "1GSYD")
+
+# Convert to df
+df_poi <- sf_poi_syd %>% cbind(st_coordinates(sf_poi_syd))
+df_poi$geometry <- NULL
+
+
+## Inspect POI Historical data
+# Summarise types of POI
+poi_sum <- ddply(df_poi, .(poitype), summarise,
+                 count = length(poigroup))
+
+
+
+## Save POI data
+#write.csv(df_poi, "C:/Files/Value Australia/Gentrification Prediction/Data/Outputs/POIHistory_20210713_df.csv")
+#saveRDS(sf_poi, "C:/Files/Value Australia/Gentrification Prediction/Data/Outputs/POIHistory_20210713_sf.rds")
+```
+
+
+# 4.2 Sub-Classifications and Broken down into active years
+```{r}
+## Transport Facility Point
+# Write sub-class classifications
+df_tfp <- df_tfp %>% mutate(point_type = ifelse(classsubtype ==1, "Airport", 
+                                                ifelse(classsubtype ==2, "Bus Interchange",
+                                                       ifelse(classsubtype ==4, "Marina",
+                                                              ifelse(classsubtype ==5, "Carpark",
+                                                                     ifelse(classsubtype ==6, "Railway/Light Rail",
+                                                                            ifelse(classsubtype ==7, "Rest Area",
+                                                                                   "Other")))))))
+
+# Define new transport facility points within 5 year period before Census year
+df_tfp_new_11 <- df_tfp %>% filter(startdate < "2012-01-01",
+                               startdate > "2006-12-31")
+
+df_tfp_new_16 <- df_tfp %>% filter(startdate < "2017-01-01",
+                               startdate > "2011-12-31")
+
+
+## Point of Interest
+# Define POI groups
+railway <- c("Railway Station")
+supermarket <- c("Shopping Centre")
+schools <- c("Primary School", "High School", "Preschool", "Combined Primary-High School", "Special School", "Combined Primary-Secondary School")
+parks_sport_fields <- c("Park", "Sports Field", "Sports Court", "Golf Course", "Sports Centre")
+swimming_place <- c("Swimming Pool", "Beach", "Swimming Pool Facility", "Waterfall")
+medical <- c("General Hospital", "Medical Centre", "Emergency Hospital")
+
+# Write sub-group classifications
+df_poi <- df_poi %>% mutate(poi_group = ifelse(poitype %in% railway, "railway",
+                                               ifelse(poitype %in% supermarket, "shopping centre",
+                                                      ifelse(poitype %in% schools, "schools",
+                                                             ifelse(poitype %in% parks_sport_fields, "parks sport fields",
+                                                                    ifelse(poitype %in% swimming_place, "swimming place",
+                                                                           ifelse(poitype %in% medical, "medical", "other")))))))
+
+# Define POI's active as at 2011 and 2016
+df_new_poi_11 <- df_poi %>% filter(startdate < "2011-01-01")
+
+df_new_poi_16 <- df_poi %>% filter(startdate < "2016-01-01",
+                                   startdate > "2011-01-01")
+
+# Summary test
+poi_11_summ <- ddply(df_new_poi_11, .(poi_group), summarise, len = length(poigroup))
+poi_16_summ <- ddply(df_new_poi_16, .(poi_group), summarise, len = length(poigroup))
+```
+
+
+
+# 4.3 Export data 
+```{r}
+# Export TFP data
+write.csv(df_tfp_new_11, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/TFP_New_11.csv")
+write.csv(df_tfp_new_16, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/TFP_New_16.csv")
+
+# Export POI data
+write.csv(df_poi_11, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/POI_11.csv")
+write.csv(df_poi_16, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Inputs/Non-Census Data/POI_16.csv")
+```
+
+
+
+########### 5. Prepare SA1 Nodes ###################
+# 5.1 Attach centroid of each SA1 area to make it a node
+```{r}
+# Create SA1 node data by extracting centroid of each SA1 area
+sa1_node <- sa1 %>% cbind(st_coordinates(st_centroid(sa1)))
+
+sa1_node$geometry <- NULL
+
+# Export POI data
+write.csv(sa1_node, "C:/Files/Value Australia/Gentrification Prediction/Data/Inputs/Non-Census Data/sa1_node.csv")
+```
+
+
+
+
+
+
+
