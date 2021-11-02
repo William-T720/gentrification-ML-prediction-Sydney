@@ -1,0 +1,568 @@
+---
+title: "ML Housing Price Data Prep"
+author: "Will Thackway"
+date: "02/07/2021"
+output: html_document
+---
+
+############ 0. Setup ###################
+# 0.0 Import packages
+```{r setup}
+library(sf)
+library(dplyr)
+library(MLmetrics)
+library(mapview)
+
+library(raster)
+library(geomerge)
+library(maptools)
+library(tidyverse)
+library(lwgeom)
+library(plyr)
+library(tmap)
+library(ggplot2)
+library(reshape2)
+library(maptools)
+library(rgdal)
+library(zoo)
+
+library(classInt)
+library(Hmisc)
+library(ExcelFunctionsR)
+```
+
+# 0.1 Assumption setting
+```{r}
+# Inflation Rate
+inf_rate <- 0.025
+
+# Property Count Threshold
+pct <- 10
+```
+
+
+
+############ 1. Import & Clean Data ###################
+# 1.1 Import Data, inflate property price 
+```{r}
+## Sold Data
+nsw_property_10  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2010 - inc Geocode_57559_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2012, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2010, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^11) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_11  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2011 - inc Geocode_57558_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2012, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2011, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^10) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_12  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2012 - inc Geocode_57557_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2012, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2012, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^9) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_13  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2013 - inc Geocode_57556_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2013, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2013, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^8) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_14  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2014 - inc Geocode_57555_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2014, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2014, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^7) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_15  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2015 - inc Geocode_57554_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2015, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2015, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^6) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_16  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2016 - inc Geocode_57552_20200624.csv", stringsAsFactors = FALSE) %>% mutate(year = 2016, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2016, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^5) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_17  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2017 - inc Geocode_57551_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2017, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^4) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_18  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2018 - inc Geocode_57550_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2018, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^3) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_19  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2019 - inc Geocode_57490_20200622.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2019, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^2) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_20  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 12 months to December 2020 - inc Geocode_62946_20210610.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2020, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^1) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+nsw_property_21  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Sold/NSW Raw Sold data - 3 months to March 2021 - inc Geocode (3 months)_62948_20210610.csv", stringsAsFactors = FALSE) %>% mutate(year = 2011, EventDate = as.Date(EventDate, "%d/%m/%Y"), quarter = as.yearqtr(EventDate)) %>% 
+  mutate(year = 2021, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^0) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, year, quarter, Postcode, Property_Latitude, Property_Longitude, PropertyCategorisation)
+
+
+# Merge all datasets
+nsw_property_10_21 <- rbind(nsw_property_10,
+                            nsw_property_11,
+                            nsw_property_12,
+                            nsw_property_13,
+                            nsw_property_14,
+                            nsw_property_15,
+                            nsw_property_16,
+                            nsw_property_17,
+                            nsw_property_18,
+                            nsw_property_19,
+                            nsw_property_20,
+                            nsw_property_21) %>% drop_na()
+
+
+
+## Rental Data
+nsw_rent_10  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2010 - inc Geocode_57905_20200715.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2010, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^11) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_11  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2011 - inc Geocode_57533_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2011, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^10) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_12  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2012 - inc Geocode_57530_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2012, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^9) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_13  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2013 - inc Geocode_57529_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2013, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^8) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_14  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2014 - inc Geocode_57528_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2014, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^7) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_15  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2015 - inc Geocode_57527_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2015, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^6) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_16  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2016 - inc Geocode_57526_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2016, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^5) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_17  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2017 - inc Geocode_57525_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2017, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^4) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_18  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2018 - inc Geocode_57524_20200624.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2018, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^3) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_19  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2019 - inc Geocode_57492_20200623.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2019, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^2) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_20  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 12 months to December 2020 - inc Geocode_62940_20210610.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2020, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^1) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+nsw_rent_21  <- read.csv("C:/Files/Value Australia/All_Projects/Ad Hoc/CL Macroeconomc Work/Property Data/Rental/NSW Raw data (FOR RENT) - 3 months to March 2021 - inc Geocode (3 months)_62941_20210610.csv", stringsAsFactors = FALSE) %>% 
+  mutate(year = 2021, 
+         EventDate = as.Date(EventDate, "%d/%m/%Y"), 
+         quarter = as.yearqtr(EventDate),
+         EventPriceInf = EventPrice * (1+inf_rate)^0) %>% 
+  dplyr::select (EventDate, EventPrice, EventPriceInf, Suburb, Postcode, State, PropertyType, Property_Latitude, Property_Longitude, year, quarter)
+
+
+
+# Merge all datasets
+nsw_rental_10_21 <- rbind(nsw_rent_10,
+                          nsw_rent_11,
+                          nsw_rent_12,
+                          nsw_rent_13,
+                          nsw_rent_14,
+                          nsw_rent_15,
+                          nsw_rent_16,
+                          nsw_rent_17,
+                          nsw_rent_18,
+                          nsw_rent_19,
+                          nsw_rent_20,
+                          nsw_rent_21) %>% drop_na()
+```
+
+
+
+# 1.2 Merge dataset with SA1 => to get SA1 column
+```{r}
+# Import SA1 esri shapefile boundaries
+# Import Statistical Area boundaries
+unzip("C:/Files/Value Australia/All_Projects/Data/Inputs/1270055001_sa1_2016_aust_shape.zip", exdir=".")
+sa1 <- read_sf("SA1_2016_AUST.shp") %>% filter(GCC_CODE16 == "1GSYD") %>% st_transform(crs = st_crs(4283))
+
+# Convert data to spatial data frame using property latitude and longitude
+df_SF <- st_as_sf(nsw_property_10_21,coords = c("Property_Longitude", "Property_Latitude"), crs = st_crs(4283))
+
+rdf_SF <- st_as_sf(nsw_rental_10_21,coords = c("Property_Longitude", "Property_Latitude"), crs = st_crs(4283))
+
+
+# Merge points and polygon data
+df_SF_sa1 <- sf::st_join(df_SF, sa1,  join = st_intersects) %>% drop_na()
+
+rdf_SF_sa1 <- sf::st_join(rdf_SF, sa1,  join = st_intersects) %>% drop_na()
+```
+
+
+
+############ 2. Establish Study Areas ###################
+
+# 2.1 Summarise median price inflated for two 5 year periods: SA1 Area
+```{r}
+# Drop geometry column in df to reduce computation time
+df_sa1 <- df_SF_sa1
+df_sa1$geometry <- NULL
+
+rdf_sa1 <- rdf_SF_sa1
+rdf_sa1$geometry <- NULL
+
+# Add column amalgamating gentrifying suburbs
+df_sa1 <- df_sa1 %>% 
+  mutate(SA2_NAME_gent = ifelse(SA2_NAME16 %in% c('Auburn - Central', 'Auburn - South', 'Auburn - North'), 'Auburn',
+                                ifelse(SA2_NAME16 %in% c('Bankstown - South', 'Bankstown - North'), 'Bankstown',
+                                       ifelse(SA2_NAME16 %in% c('Baulkham Hills (East)','Baulkham Hills (West) - Bella Vista',
+                                                                'Eastwood - Denistone'), 'Eastwood - Baulkham Hills',
+                                              ifelse(SA2_NAME16 %in% c('Maroubra - North','Maroubra - South','Maroubra - West'), 'Maroubra',
+                                                     ifelse(SA2_NAME16 %in% c('Sutherland - Kirrawee', 'Oyster Bay - Como - Jannali'),
+                                                            'Sutherland',
+                                                            ifelse(SA2_NAME16 %in% c('Freshwater - Brookvale', 'Manly Vale - Allambie Heights'),
+                                                                   'Brookvale', 
+                                                                   SA2_NAME16 ) )  ) ) ) ) )
+
+rdf_sa1 <- rdf_sa1 %>% 
+  mutate(SA2_NAME_gent = ifelse(SA2_NAME16 %in% c('Auburn - Central', 'Auburn - South', 'Auburn - North'), 'Auburn',
+                                ifelse(SA2_NAME16 %in% c('Bankstown - South', 'Bankstown - North'), 'Bankstown',
+                                       ifelse(SA2_NAME16 %in% c('Baulkham Hills (East)','Baulkham Hills (West) - Bella Vista',
+                                                                'Eastwood - Denistone'), 'Eastwood - Baulkham Hills',
+                                              ifelse(SA2_NAME16 %in% c('Maroubra - North','Maroubra - South', 'Maroubra - West'), 'Maroubra',
+                                                     ifelse(SA2_NAME16 %in% c('Sutherland - Kirrawee', 'Oyster Bay - Como - Jannali'),
+                                                            'Sutherland',
+                                                            ifelse(SA2_NAME16 %in% c('Freshwater - Brookvale', 'Manly Vale - Allambie Heights'),
+                                                                   'Brookvale', 
+                                                                   SA2_NAME16 ) )  ) ) ) ) )
+
+# Separate out 5 year periods, separate into units and houses
+house_16 <- df_sa1 %>% filter(year < 2017, year > 2011, PropertyCategorisation=="House")
+house_21 <- df_sa1 %>% filter(year > 2016, PropertyCategorisation=="House")
+unit_16 <- df_sa1 %>% filter(year < 2017, year > 2011, PropertyCategorisation=="Unit")
+unit_21 <- df_sa1 %>% filter(year > 2016, PropertyCategorisation=="Unit")
+property_16 <- df_sa1 %>% filter(year < 2017, year > 2006)
+property_21 <- df_sa1 %>% filter(year > 2016)
+
+rental_16 <- rdf_sa1 %>% filter(year < 2017, year > 2006)
+rental_21 <- rdf_sa1 %>% filter(year > 2016)
+```
+
+
+
+
+########## 3. Compare distinct years #############
+# 3.1 Compare 10-years apart - gentrification areas amalgamated
+```{r}
+# Create datasets
+house_2010 <- df_sa1 %>% filter(year == 2010, PropertyCategorisation=="House")
+house_2020 <- df_sa1 %>% filter(year == 2020, PropertyCategorisation=="House")
+unit_2010 <- df_sa1 %>% filter(year == 2010, PropertyCategorisation=="Unit")
+unit_2020 <- df_sa1 %>% filter(year == 2020, PropertyCategorisation=="Unit")
+property_2010 <- df_sa1 %>% filter(year == 2010)
+property_2020 <- df_sa1 %>% filter(year == 2020)
+
+rental_2010 <- rdf_sa1 %>% filter(year == 2010)
+rental_2020 <- rdf_sa1 %>% filter(year == 2020)
+
+
+# Summarise price for each year
+property_2010_median_SA2 <- ddply(property_2010, .(SA2_NAME_gent, GCC_CODE16), dplyr::summarize, 
+                         median_price_inf = median(EventPriceInf),
+                         median_price = median(EventPrice),
+                         property_count = length(EventPriceInf) )
+property_2020_median_SA2 <- ddply(property_2020, .(SA2_NAME_gent), dplyr::summarize, 
+                         median_price_inf = median(EventPriceInf),
+                         median_price = median(EventPrice),
+                         property_count = length(EventPriceInf))
+
+
+house_2010_median_SA2 <- ddply(house_2010, .(SA2_NAME_gent), dplyr::summarize, 
+                         house_price_inf = median(EventPriceInf),
+                         house_price = median(EventPrice),
+                         house_count = length(EventPriceInf) )
+house_2020_median_SA2 <- ddply(house_2020, .(SA2_NAME_gent), dplyr::summarize, 
+                         house_price_inf = median(EventPriceInf),
+                         house_price = median(EventPrice),
+                         house_count = length(EventPriceInf))
+
+
+unit_2010_median_SA2 <- ddply(unit_2010, .(SA2_NAME_gent), dplyr::summarize, 
+                         unit_price_inf = median(EventPriceInf),
+                         unit_price = median(EventPrice),
+                         unit_count = length(EventPriceInf) )
+unit_2020_median_SA2 <- ddply(unit_2020, .(SA2_NAME_gent), dplyr::summarize, 
+                         unit_price_inf = median(EventPriceInf),
+                         unit_price = median(EventPrice),
+                         unit_count = length(EventPriceInf))
+
+
+rental_2010_median_SA2 <- ddply(rental_2010, .(SA2_NAME_gent), dplyr::summarize, 
+                         median_rental_inf = median(EventPriceInf),
+                         median_rental = median(EventPrice),
+                         rental_count = length(EventPriceInf) )
+rental_2020_median_SA2 <- ddply(rental_2020, .(SA2_NAME_gent), dplyr::summarize, 
+                         median_rental_inf = median(EventPriceInf),
+                         median_rental = median(EventPrice),
+                         rental_count = length(EventPriceInf))
+
+
+
+# Merge into one dataset
+overall_property_1020 <- property_2010_median_SA2 %>% 
+  merge(property_2020_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(house_2010_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(house_2020_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(unit_2010_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(unit_2020_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(rental_2010_median_SA2, by="SA2_NAME_gent") %>% 
+  merge(rental_2020_median_SA2, by="SA2_NAME_gent") %>% 
+  mutate(property_price_2010 = median_price.x,
+         property_price_2020 = median_price.y,
+         house_price_2010 = house_price.x,
+         house_price_2020 = house_price.y,
+         unit_price_2010 = unit_price.x,
+         unit_price_2020 = unit_price.y,
+         rental_price_2010 = median_rental.x,
+         rental_price_2020 = median_rental.y,
+         property_count_2010 = property_count.x,
+         property_count_2020 = property_count.y,
+         house_count_2010 = house_count.x,
+         house_count_2020 = house_count.y,
+         unit_count_2010 = unit_count.x,
+         unit_count_2020 = unit_count.y,
+         rental_count_2010 = rental_count.x,
+         rental_count_2020 = rental_count.y,
+         property_price_change = median_price.y - median_price.x,
+         property_price_perc = (median_price.y - median_price.x)/median_price.x,
+         house_price_change = house_price.y - house_price.x,
+         house_price_perc = (house_price.y - house_price.x)/house_price.x,
+         unit_price_change = unit_price.y - unit_price.x,
+         unit_price_perc = (unit_price.y - unit_price.x)/unit_price.x,
+         rental_price_change = median_rental.y - median_rental.x,
+         rental_price_perc = (median_rental.y - median_rental.x)/median_rental.x) %>% 
+  dplyr::select(SA2_NAME_gent,
+                GCC_CODE16,
+                property_price_2010,
+                property_price_2020,
+                house_price_2010,
+                house_price_2020,
+                unit_price_2010,
+                unit_price_2020,
+                rental_price_2010,
+                rental_price_2020,
+                property_count_2010,
+                property_count_2020,
+                house_count_2010,
+                house_count_2020,
+                unit_count_2010,
+                unit_count_2020,
+                rental_count_2010,
+                rental_count_2020,
+                property_price_change,
+                property_price_perc,
+                house_price_change,
+                house_price_perc,
+                unit_price_change,
+                unit_price_perc,
+                rental_price_change,
+                rental_price_perc)
+
+
+# Gentrification [predicted] hotspots
+hotspots <- c('Auburn',
+              'Bankstown',
+              'Eastwood - Baulkham Hills',
+              'Botany',
+              'Brookvale',
+              'Maroubra',
+              'Sutherland')
+
+gent_property_1020 <- overall_property_1020 %>% 
+  filter(SA2_NAME_gent %in% hotspots)
+
+
+## Export datasets
+write.csv(gent_property_1020, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Outputs/Property Validation/gent_property_1020_sa2.csv")
+```
+
+
+
+# 3.2 Get Sydney-wide medians
+```{r}
+# Summarise price for each year
+property_2010_median_GCC <- ddply(property_2010, .(GCC_CODE16), dplyr::summarize, 
+                         median_price_inf = median(EventPriceInf),
+                         median_price = median(EventPrice),
+                         property_count = length(EventPriceInf) )
+property_2020_median_GCC <- ddply(property_2020, .(GCC_CODE16), dplyr::summarize, 
+                         median_price_inf = median(EventPriceInf),
+                         median_price = median(EventPrice),
+                         property_count = length(EventPriceInf))
+
+
+house_2010_median_GCC <- ddply(house_2010, .(GCC_CODE16), dplyr::summarize, 
+                         house_price_inf = median(EventPriceInf),
+                         house_price = median(EventPrice),
+                         house_count = length(EventPriceInf) )
+house_2020_median_GCC <- ddply(house_2020, .(GCC_CODE16), dplyr::summarize, 
+                         house_price_inf = median(EventPriceInf),
+                         house_price = median(EventPrice),
+                         house_count = length(EventPriceInf))
+
+
+unit_2010_median_GCC <- ddply(unit_2010, .(GCC_CODE16), dplyr::summarize, 
+                         unit_price_inf = median(EventPriceInf),
+                         unit_price = median(EventPrice),
+                         unit_count = length(EventPriceInf) )
+unit_2020_median_GCC <- ddply(unit_2020, .(GCC_CODE16), dplyr::summarize, 
+                         unit_price_inf = median(EventPriceInf),
+                         unit_price = median(EventPrice),
+                         unit_count = length(EventPriceInf))
+
+
+rental_2010_median_GCC <- ddply(rental_2010, .(GCC_CODE16), dplyr::summarize, 
+                         median_rental_inf = median(EventPriceInf),
+                         median_rental = median(EventPrice),
+                         rental_count = length(EventPriceInf) )
+rental_2020_median_GCC <- ddply(rental_2020, .(GCC_CODE16), dplyr::summarize, 
+                         median_rental_inf = median(EventPriceInf),
+                         median_rental = median(EventPrice),
+                         rental_count = length(EventPriceInf))
+
+
+# Combine to one dataset
+gcc_property_1020 <- property_2010_median_GCC %>% 
+  merge(property_2020_median_GCC, by="GCC_CODE16") %>% 
+  merge(house_2010_median_GCC, by="GCC_CODE16") %>% 
+  merge(house_2020_median_GCC, by="GCC_CODE16") %>% 
+  merge(unit_2010_median_GCC, by="GCC_CODE16") %>% 
+  merge(unit_2020_median_GCC, by="GCC_CODE16") %>% 
+  merge(rental_2010_median_GCC, by="GCC_CODE16") %>% 
+  merge(rental_2020_median_GCC, by="GCC_CODE16") %>% 
+  mutate(property_price_2010 = median_price.x,
+         property_price_2020 = median_price.y,
+         house_price_2010 = house_price.x,
+         house_price_2020 = house_price.y,
+         unit_price_2010 = unit_price.x,
+         unit_price_2020 = unit_price.y,
+         rental_price_2010 = median_rental.x,
+         rental_price_2020 = median_rental.y,
+         property_count_2010 = property_count.x,
+         property_count_2020 = property_count.y,
+         house_count_2010 = house_count.x,
+         house_count_2020 = house_count.y,
+         unit_count_2010 = unit_count.x,
+         unit_count_2020 = unit_count.y,
+         rental_count_2010 = rental_count.x,
+         rental_count_2020 = rental_count.y,
+         property_price_change = median_price.y - median_price.x,
+         property_price_perc = (median_price.y - median_price.x)/median_price.x,
+         house_price_change = house_price.y - house_price.x,
+         house_price_perc = (house_price.y - house_price.x)/house_price.x,
+         unit_price_change = unit_price.y - unit_price.x,
+         unit_price_perc = (unit_price.y - unit_price.x)/unit_price.x,
+         rental_price_change = median_rental.y - median_rental.x,
+         rental_price_perc = (median_rental.y - median_rental.x)/median_rental.x) %>% 
+  dplyr::select(GCC_CODE16,
+                property_price_2010,
+                property_price_2020,
+                house_price_2010,
+                house_price_2020,
+                unit_price_2010,
+                unit_price_2020,
+                rental_price_2010,
+                rental_price_2020,
+                property_count_2010,
+                property_count_2020,
+                house_count_2010,
+                house_count_2020,
+                unit_count_2010,
+                unit_count_2020,
+                rental_count_2010,
+                rental_count_2020,
+                property_price_change,
+                property_price_perc,
+                house_price_change,
+                house_price_perc,
+                unit_price_change,
+                unit_price_perc,
+                rental_price_change,
+                rental_price_perc)
+
+
+## Export datasets
+write.csv(gcc_property_1020, "C:/Files/Value Australia/Gentrification ML Prediction/Data/Outputs/Property Validation/gcc_property_1020.csv")
+```
